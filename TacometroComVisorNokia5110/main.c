@@ -54,6 +54,8 @@ unsigned char c_usart_recebido     = 'A';
 uint8_t   temperatura_maxima_bat   = 30;
 uint8_t   flag_send                = 0;
 uint8_t   vigilante                = 0;
+uint8_t   i_torque                 = 0;
+uint8_t   i_torqueMaximo           = 80;
 
 
 void USART_Init(unsigned int ubrr)
@@ -167,25 +169,8 @@ ISR(PCINT2_vect)                                 // Interrupção por mudança de p
 	}
 	if((PIND & 0b10000000) == 0)                 // MARCHA PARK PD7
 	{
-		marcha = 'P'; 
+		marcha = 'P';
 	}
-// 	if((~PIND & 0b00000001) == 0)                // 0bxxxxxxx0 & 0b00000001 == 0
-// 	{
-// 		PORTD ^= 0b00000010;
-// 		
-// 		if (vigilante == 0xFF)                    // ALTERNA MODO VIGILANTE
-// 		{
-// 			PORTD &= 0b11111101;
-// 			vigilante = 0;
-// 		}
-// 		else
-// 		{
-// 			PORTD |= 0b00000010;
-// 			vigilante = 0xFF;                     
-// 		}
-// 		
-		
-	
 }
 
 
@@ -405,6 +390,7 @@ void visor_oled()
 	sonar_cm[5] = '\0';
 	char v_bateria[4];
 	char t_bateria[4];
+	char s_torque[4];
 	
 	
 	sprintf(dis_km_str, "%u", (int)(distanciaPercorrida_cm/100000));
@@ -414,6 +400,7 @@ void visor_oled()
 	sprintf(sonar_cm, "%u", sonar_cm_8);
 	
 	sprintf(v_bateria, "%u", porcentagem_bateria);
+	sprintf(s_torque, "%u", i_torque);
 	sprintf(t_bateria, "%u", temperatura_bateria);
 	
 	GLCD_Clear();
@@ -454,10 +441,15 @@ void visor_oled()
 	GLCD_PrintString(rpm);
 	GLCD_PrintString(" rpm");
 	
-	GLCD_GotoXY(20, 52);
+	GLCD_GotoXY(2, 52);
 	GLCD_PrintString(dis_km_str);
 	GLCD_PrintString(" km");
-	GLCD_DrawRectangle(10, 48, 70, 62, GLCD_Black);          // RETANGULO DISTANCIA
+	GLCD_DrawRectangle(0, 48, 35, 62, GLCD_Black);          // RETANGULO DISTANCIA
+	
+	GLCD_GotoXY(39, 52);
+	GLCD_PrintString(s_torque);
+	GLCD_PrintString(" N.m");
+	GLCD_DrawRectangle(37, 48, 80, 62, GLCD_Black);          // RETANGULO TORQUE
 	
 	GLCD_GotoXY(115, 52);
 	GLCD_PrintChar(marcha);
@@ -472,22 +464,40 @@ void visor_oled()
 void leitura_sensores_ADC()
 {
 	static uint8_t cont_canal = 0;
+	uint16_t i_adc    = 0;
+	
 	
 	switch(cont_canal)
 	{
 		case 0:  //LEITURA CANAL 0 - PEDAL ACELERADOR
-			//pedal = leitura_ADC;
-			if (sonar_cm_8 > 300)       // rever
+			i_adc = ADC;
+			
+			if(sonar_cm_8 <= 300)                          // CHOQUE IMINENTE , DESLIGA MOTOR
+			
 			{
-				// PWM CURSO PEDAL /4;
-				OCR0A = ADC/4;
+				if(velocidadeVeiculo_kmph > 20)
+				{
+					OCR0A = 0;
+					i_torque = 0;
+				}
 			}
-			else if(velocidadeVeiculo_kmph > 20)
+			
+			else if (velocidadeVeiculo_kmph > 50)                // LIMITE DE TORQUE
 			{
 				// PWM LIMITA EM 25;
 				OCR0A = 25;
+				i_torque = (uint32_t)(25 * (i_torqueMaximo / 255));                //   TORQUE MAXIMO
 			}
 			
+			else if (sonar_cm_8 > 300)                                            // OPERAÇÃO NORMAL
+			
+			{   
+				uint8_t i_normal;
+				i_normal = i_adc / 4;
+				i_torque = (uint32_t)(i_normal * i_torqueMaximo / 255);             // MAXIMO DE 80 N.M DE TORQUE
+				OCR0A = i_normal;                               
+			}
+						
 			ADMUX = 0b01000001;        // MUDAR PARA CANAL 1
 			
 			break;
